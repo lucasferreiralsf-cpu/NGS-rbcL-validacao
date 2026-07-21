@@ -1,0 +1,7 @@
+# Ignorar arquivos grandes de NGS
+*.fastq
+*.fastq.gz
+*.bam
+*.sam
+*.sra
+*.fq
