@@ -24,4 +24,9 @@ Este repositório documenta a análise de dados NGS Illumina MiSeq para validaç
 3. Trimming com Trimmomatic/Cutadapt.
 4. Alinhamento/identificação com BLAST ou BOLD.
 
+## Download dos dados
 
+Os arquivos FASTQ foram obtidos via BaseSpace CLI (Illumina).  
+Documentação completa do processo está disponível em `docs/download_dados.md`.
+
+Todos os arquivos `.fastq.gz` foram armazenados na pasta `data/` e não são versionados no GitHub (controlados via `.gitignore`).
