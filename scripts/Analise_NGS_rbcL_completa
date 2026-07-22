@@ -1,0 +1,498 @@
+Pipeline Bioinformática Completa para Validação do Marcador rbcL (Illumina MiSeq 2×300 bp)
+Objetivo
+
+Este pipeline descreve o processamento completo de dados de sequenciamento do marcador rbcL utilizando o pacote DADA2, desde a inspeção inicial da qualidade até a obtenção de ASVs e posterior identificação taxonômica.
+
+Importante: Durante a validação observou-se que o amplicon apresenta tamanho próximo ao limite operacional do sequenciamento paired-end (2×300 bp). Assim, recomenda-se fortemente a utilização da estratégia single-end (R1) como análise principal. O fluxo paired-end permanece descrito como alternativa para comparação.
+
+ETAPA 1 - Instalação dos Pacotes
+
+Nesta etapa são instalados todos os pacotes necessários para a análise.
+
+install.packages("BiocManager")
+
+BiocManager::install("dada2")
+BiocManager::install("ShortRead")
+
+install.packages(c(
+  "ggplot2",
+  "tidyverse",
+  "seqinr"
+))
+
+ETAPA 2 - Carregamento dos Pacotes
+
+Carregamento das bibliotecas utilizadas ao longo do pipeline.
+
+library(dada2)
+library(ShortRead)
+library(ggplot2)
+library(tidyverse)
+library(seqinr)
+
+ETAPA 3 - Definição do Diretório de Trabalho
+
+Definir o caminho onde os arquivos FASTQ estão armazenados.
+
+path <- "C:/NGS_rbcL"
+
+
+Verificar se a pasta existe:
+
+dir.exists(path)
+
+
+Visualizar os arquivos:
+
+list.files(path)
+
+ETAPA 4 - Identificação dos Arquivos Forward e Reverse
+
+Separação automática dos FASTQs Forward (R1) e Reverse (R2).
+
+fnFs <- sort(
+  list.files(
+    path,
+    pattern = "_R1_001.fastq.gz$",
+    full.names = TRUE
+  )
+)
+
+fnRs <- sort(
+  list.files(
+    path,
+    pattern = "_R2_001.fastq.gz$",
+    full.names = TRUE
+  )
+)
+
+
+Conferência:
+
+fnFs
+fnRs
+
+ETAPA 5 - Avaliação Inicial da Qualidade
+
+Inspecionar os perfis de qualidade produzidos pelo sequenciador.
+
+plotQualityProfile(fnFs[1])
+
+plotQualityProfile(fnRs[1])
+
+
+Objetivo:
+
+verificar o Q-score ao longo da leitura;
+detectar degradação de qualidade;
+definir parâmetros de filtragem.
+ETAPA 6 - Quantificar o Número de Reads
+
+Avaliar a profundidade de sequenciamento.
+
+sapply(
+  fnFs,
+  function(x)
+    countFastq(x)$records
+)
+
+ETAPA 7 - Avaliar Comprimento das Leituras
+
+Ler uma amostra:
+
+fq <- readFastq(fnFs[1])
+
+
+Distribuição dos comprimentos:
+
+table(width(sread(fq)))
+
+
+Resumo para todas as amostras:
+
+for(i in 1:length(fnFs)){
+
+  cat("\n\n")
+  cat(basename(fnFs[i]), "\n")
+
+  print(
+    summary(
+      width(
+        sread(
+          readFastq(fnFs[i])
+        )
+      )
+    )
+  )
+
+}
+
+ETAPA 8 - Remoção de Adaptadores Illumina
+
+Remover adaptadores e overhangs antes da análise.
+
+Overhangs utilizados
+Forward overhang:
+TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG
+
+Reverse overhang:
+GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG
+
+
+Utilizar Cutadapt:
+
+cutadapt \
+-a TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG \
+-A GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG \
+-o trimmed_R1.fastq.gz \
+-p trimmed_R2.fastq.gz \
+sample_R1.fastq.gz \
+sample_R2.fastq.gz
+
+ETAPA 9 - Remoção dos Primers do rbcL
+
+Primers utilizados:
+
+Forward:
+ATGTCACCACAAACAGAGACTAAAGC
+
+Reverse:
+GTAAAATCAAGTCCACCRCG
+
+
+Remover utilizando Cutadapt:
+
+cutadapt \
+-g ATGTCACCACAAACAGAGACTAAAGC \
+-G GTAAAATCAAGTCCACCRCG \
+-o primer_trimmed_R1.fastq.gz \
+-p primer_trimmed_R2.fastq.gz \
+trimmed_R1.fastq.gz \
+trimmed_R2.fastq.gz
+
+ETAPA 10 - Criar Diretório de Arquivos Filtrados
+filt_path <- file.path(
+  path,
+  "filtered"
+)
+
+dir.create(
+  filt_path,
+  showWarnings = FALSE
+)
+
+ETAPA 11 - Definir Arquivos Filtrados
+filtFs <- file.path(
+  filt_path,
+  basename(fnFs)
+)
+
+filtRs <- file.path(
+  filt_path,
+  basename(fnRs)
+)
+
+ETAPA 12 - Filtragem de Qualidade
+
+Remover reads de baixa qualidade.
+
+out <- filterAndTrim(
+  fnFs,
+  filtFs,
+  fnRs,
+  filtRs,
+  maxN = 0,
+  maxEE = c(2,2),
+  truncQ = 2,
+  minLen = 200,
+  rm.phix = TRUE,
+  compress = TRUE,
+  multithread = TRUE
+)
+
+
+Visualizar resultado:
+
+out
+
+
+Critérios aplicados:
+
+maxN = 0     → remove reads com bases N
+maxEE = 2    → máximo de erros esperados
+truncQ = 2   → truncagem por baixa qualidade
+minLen = 200 → comprimento mínimo
+rm.phix      → remove contaminantes PhiX
+
+ETAPA 13 - Aprendizado do Modelo de Erro
+
+Modelagem estatística dos erros de sequenciamento.
+
+errF <- learnErrors(
+  filtFs,
+  multithread = TRUE
+)
+
+errR <- learnErrors(
+  filtRs,
+  multithread = TRUE
+)
+
+
+Visualização:
+
+plotErrors(errF, nominalQ = TRUE)
+
+plotErrors(errR, nominalQ = TRUE)
+
+ETAPA 14 - Inferência das ASVs
+
+Reconstrução das variantes biológicas reais.
+
+dadaFs <- dada(
+  filtFs,
+  err = errF,
+  multithread = TRUE
+)
+
+dadaRs <- dada(
+  filtRs,
+  err = errR,
+  multithread = TRUE
+)
+
+
+Inspecionar:
+
+dadaFs
+
+dadaRs
+
+ETAPA 15 - Pipeline Principal (Single-End)
+
+Como validado experimentalmente, recomenda-se utilizar os reads R1.
+
+Construir tabela de ASVs:
+
+seqtab <- makeSequenceTable(
+  dadaFs
+)
+
+
+Verificar dimensões:
+
+dim(seqtab)
+
+ETAPA 16 - Pipeline Alternativa (Paired-End)
+
+Opcional.
+
+mergers <- mergePairs(
+  dadaFs,
+  filtFs,
+  dadaRs,
+  filtRs,
+  verbose = TRUE
+)
+
+
+Criar tabela:
+
+seqtab <- makeSequenceTable(
+  mergers
+)
+
+
+Verificar:
+
+dim(seqtab)
+
+table(
+  nchar(
+    colnames(seqtab)
+  )
+)
+
+ETAPA 17 - Estatísticas de Retenção
+
+Criar função:
+
+getN <- function(x)
+  sum(getUniques(x))
+
+
+Tabela de rastreamento:
+
+track <- cbind(
+  input = out[,1],
+  filtered = out[,2],
+  denoisedF = sapply(dadaFs, getN),
+  denoisedR = sapply(dadaRs, getN)
+)
+
+track
+
+ETAPA 18 - Remoção de Quimeras
+seqtab.nochim <- removeBimeraDenovo(
+  seqtab,
+  method = "consensus",
+  multithread = TRUE
+)
+
+
+Verificar:
+
+dim(seqtab.nochim)
+
+sum(seqtab.nochim) /
+sum(seqtab)
+
+ETAPA 19 - Avaliação dos Comprimentos das ASVs
+asv.lengths <- nchar(
+  colnames(seqtab.nochim)
+)
+
+summary(asv.lengths)
+
+
+Histograma:
+
+hist(
+  asv.lengths,
+  breaks = 100,
+  main = "Comprimento das ASVs"
+)
+
+ETAPA 20 - Identificar ASVs Mais Abundantes
+asv.sum <- colSums(
+  seqtab.nochim
+)
+
+head(
+  sort(
+    asv.sum,
+    decreasing = TRUE
+  ),
+  20
+)
+
+ETAPA 21 - Exportação das ASVs em FASTA
+
+Selecionar ASVs:
+
+seqs <- colnames(
+  seqtab.nochim
+)
+
+
+Exportar:
+
+write.fasta(
+  sequences = lapply(
+    seqs,
+    s2c
+  ),
+  names = paste0(
+    "ASV_",
+    seq_along(seqs)
+  ),
+  file.out = "ASVs_rbcL.fasta"
+)
+
+
+Verificar:
+
+file.exists(
+  "ASVs_rbcL.fasta"
+)
+
+ETAPA 22 - Taxonomia por BLAST
+Opção A - NCBI BLAST
+
+Acessar:
+
+https://blast.ncbi.nlm.nih.gov
+
+
+Configuração:
+
+Program:
+blastn
+
+Database:
+nt
+
+Group:
+Viridiplantae
+
+Opção B - BLAST Local
+
+Criar banco:
+
+makeblastdb
+
+
+Executar:
+
+blastn \
+-query ASVs_rbcL.fasta \
+-db plantas \
+-outfmt 6 \
+-out taxonomy.tsv
+
+ETAPA 23 - Validação do Marcador
+
+Selecionar uma sequência bruta Forward:
+
+fq <- readFastq(fnFs[2])
+
+seq <- as.character(
+  sread(fq)[1]
+)
+
+cat(seq)
+
+
+Executar BLAST.
+
+Critérios de aceitação:
+
+Cobertura ≥ 95%
+Identidade ≥ 98%
+Hit correspondente ao gene rbcL
+
+ETAPA 24 - Validação da Leitura Reverse
+fqR <- readFastq(fnRs[2])
+
+seqR <- as.character(
+  sread(fqR)[1]
+)
+
+cat(seqR)
+
+
+Executar BLAST.
+
+Critérios de aceitação:
+
+Cobertura ≥ 95%
+Identidade ≥ 98%
+Hit correspondente ao gene rbcL
+
+Resultado Esperado da Validação
+
+✅ Qualidade média > Q30
+
+✅ Remoção eficiente de reads de baixa qualidade
+
+✅ Remoção de quimeras
+
+✅ Recuperação do gene rbcL
+
+✅ Identidade > 98%
+
+✅ Cobertura > 95%
+
+✅ ASVs exportadas para análise taxonômica
+
+✅ Classificação botânica consistente com as espécies analisadas (Algodão, Milho e Soja) ou com sequências vegetais depositadas em bancos públicos.
