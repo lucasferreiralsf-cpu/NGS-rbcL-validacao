@@ -1,159 +1,56 @@
 ### ANALISE NGS de amplicons ###
-# ETAPA 1 - Instalação dos Pacotes
-# 1.1 Nesta etapa são instalados todos os pacotes necessários para a análise.
 
+# ETAPA 1 - Instalação dos Pacotes (Caso o pacote ainda não tenha sido instalado)
 install.packages("BiocManager")
-
 BiocManager::install("dada2")
 BiocManager::install("ShortRead")
-
-install.packages(c(
-  "ggplot2",
-  "tidyverse",
-  "seqinr"
-))
+install.packages(c("ggplot2","tidyverse","seqinr"))
 
 # ETAPA 2 - Carregamento dos Pacotes
-# 2.1 Carregamento das bibliotecas utilizadas ao longo do pipeline.
-
 library(dada2)
 library(ShortRead)
 library(ggplot2)
 library(tidyverse)
 library(seqinr)
 
-# ETAPA 3 - Definição do Diretório de Trabalho
-# 3.1 Definir o caminho onde os arquivos FASTQ estão armazenados.
-
+# ETAPA 3 - Diretório de Trabalho
 path <- "/Users/Ferreira_/NGS-rbcL-validacao/INTECSO_18JUNHO2026_2026-06-18T17_17_51_6e9e5db-507459959/BCLConvert_Dragen16sPlus_06_19_2026_12_30_43Z-934455528"
-
-
-# 3.2 Verificar se a pasta existe:
-  
 dir.exists(path)
-
-# 3.3 Visualizar os arquivos:
-  
 list.files(path)
 
+# 3.1 Criar pasta de resultados
+dir.create("resultados", showWarnings = FALSE)
+dir.create("fastas_por_amostra", showWarnings = FALSE)
+
 # ETAPA 4 - Identificação dos Arquivos Forward e Reverse
-
-# 4.1 Separação automática dos FASTQs Forward (R1) e Reverse (R2).
-
-fnFs <- sort(
-  list.files(
-    path,
-    pattern = "_R1_001.fastq.gz$",
-    full.names = TRUE
-  )
-)
-
-fnRs <- sort(
-  list.files(
-    path,
-    pattern = "_R2_001.fastq.gz$",
-    full.names = TRUE
-  )
-)
-
-
-# 4.2 Conferência:
-  
-fnFs
-fnRs
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq.gz$", full.names=TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq.gz$", full.names=TRUE))
 
 # ETAPA 5 - Avaliação Inicial da Qualidade
-
-# 5.1 Inspecionar os perfis de qualidade produzidos pelo sequenciador para cada amostra.
-
-plotQualityProfile(fnFs[c(17, 21, 25)])
-
-plotQualityProfile(fnRs[1])
-
-# 5.2 Plota todas as amostras forward em um único gráfico
 plotQualityProfile(fnFs)
+png("resultados/quality_forward.png"); plotQualityProfile(fnFs); dev.off()
+png("resultados/quality_reverse.png"); plotQualityProfile(fnRs); dev.off()
 
-# 5.3 Plota todas as amostras reverse em um único gráfico
-plotQualityProfile(fnRs)
-
-# ETAPA 6 - Quantificar o Número de Reads
-
-# 6.1 Avaliar a profundidade de sequenciamento.
-
-sapply(
-  fnFs,
-  function(x)
-    countFastq(x)$records
-)
-
-# 6.2 Contar número de reads
+# ETAPA 6 - Quantificar Reads
 reads_count <- sapply(fnFs, function(x) countFastq(x)$records)
+reads_table <- data.frame(Sample=gsub("_S[0-9]+_L001.*","",basename(fnFs)), Reads=reads_count)
+write.csv(reads_table,"resultados/reads_table.csv",row.names=FALSE)
 
-# 6.3 Criar tabela com nomes simplificados
-reads_table <- data.frame(
-  Sample = gsub("_S[0-9]+_L001.*", "", basename(fnFs)), # remove sufixos
-  Reads = reads_count,
-  row.names = NULL
-)
-
-# 6.4 Visualizar tabela
-print(reads_table)
-
-# 6.5 Se quiser copiar direto para Word, pode salvar em CSV (buscar na pasta o arquivo salvo)
-write.csv(reads_table, "reads_table.csv", row.names = FALSE)
-
-# ETAPA 7 - Avaliar Comprimento das Leituras
-
-# 7.1 Ler uma amostra:
-  
-fq <- readFastq(fnFs[9])
-
-
-# 7.2 Distribuição dos comprimentos:
-  
+# ETAPA 7 - Comprimento das Leituras
+fq <- readFastq(fnFs[1])
 table(width(sread(fq)))
 
-
-# 7.3 Resumo para todas as amostras:
-  
-for(i in 1:length(fnFs)){
-    
-    cat("\n\n")
-    cat(basename(fnFs[i]), "\n")
-    
-    print(
-      summary(
-        width(
-          sread(
-            readFastq(fnFs[i])
-          )
-        )
-      )
-    )
-    
-}
-
 # ETAPA 8 - Remoção de Adaptadores Illumina
-# Esta etapa é fora do R. Deve-se instalar o cutadapt pelo terminal caso não tenha sido instalado
-# 8.1 Remover adaptadores e overhangs antes da análise.
+# Esta etapa é fora do R, deve ser executada no terminal.
+# Adaptadores (overhangs illumina) utilizados:
+# Forward: TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG
+# Reverse: GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG
 
-# Overhangs utilizados
-#vForward overhang:
-# TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG
-
-# Reverse overhang:
-#GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG
-
-
-# Utilizar Cutadapt:
-# looping para remover os adaptadores/overhangs de uma vez para todas as amostras
-
+# pelo terminal, entrar na pasta onde estão localizadas as amostras e copiar o comando abaixo 
+# Loop para remover adaptadores de todas as amostras
 for f in *_R1_001.fastq.gz
 do
-# Extrai o nome base da amostra (sem o sufixo R1/R2)
 base=$(echo $f | sed 's/_R1_001.fastq.gz//')
-
-# Executa o Cutadapt para cada par R1/R2
 cutadapt \
 -a TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG \
 -A GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG \
@@ -163,22 +60,16 @@ ${base}_R1_001.fastq.gz \
 ${base}_R2_001.fastq.gz
 done
 
+# ETAPA 9 - Remoção dos Primers 
+# Primers utilizados: rbcL
+# Forward: ATGTCACCACAAACAGAGACTAAAGC
+# Reverse: GTAAAATCAAGTCCACCRCG
 
-# ETAPA 9 - Remoção dos Primers do rbcL
-
-# Primers utilizados:
-# Forward:
-# ATGTCACCACAAACAGAGACTAAAGC
-
-#Reverse:
-#GTAAAATCAAGTCCACCRCG
-
-
-# Remover utilizando Cutadapt:
+# Ainda na pasta, copiar o comando abaixo
+# Loop para remover primers de todas as amostras
 for f in *_trimmed_R1.fastq.gz
 do
 base=$(echo $f | sed 's/_trimmed_R1.fastq.gz//')
-
 cutadapt \
 -g ATGTCACCACAAACAGAGACTAAAGC \
 -G GTAAAATCAAGTCCACCRCG \
@@ -188,270 +79,160 @@ ${base}_trimmed_R1.fastq.gz \
 ${base}_trimmed_R2.fastq.gz
 done
 
-# ETAPA 10 - Criar Diretório de Arquivos Filtrados
-filt_path <- file.path(
-  path,
-  "filtered"
-)
-
-dir.create(
-  filt_path,
-  showWarnings = FALSE
-)
+# ETAPA 10 - Diretório de Arquivos Filtrados
+filt_path <- file.path(path,"filtered"); dir.create(filt_path, showWarnings=FALSE)
 
 # ETAPA 11 - Definir Arquivos Filtrados
-filtFs <- file.path(
-  filt_path,
-  basename(fnFs)
-)
+filtFs <- file.path(filt_path, basename(fnFs))
+filtRs <- file.path(filt_path, basename(fnRs))
 
-filtRs <- file.path(
-  filt_path,
-  basename(fnRs)
-)
+# ETAPA 12 - Filtragem
+out <- filterAndTrim(fnFs,filtFs,fnRs,filtRs,maxN=0,maxEE=c(2,2),truncQ=2,minLen=200,rm.phix=TRUE,compress=TRUE,multithread=TRUE)
 
-# ETAPA 12 - Filtragem de Qualidade
-
-# 12.1 Remover reads de baixa qualidade.
-
-out <- filterAndTrim(
-  fnFs,
-  filtFs,
-  fnRs,
-  filtRs,
-  maxN = 0,
-  maxEE = c(2,2),
-  truncQ = 2,
-  minLen = 200,
-  rm.phix = TRUE,
-  compress = TRUE,
-  multithread = TRUE
-)
-
-
-# 12.2 Visualizar resultado:
-out
-
-
-#Critérios aplicados:
-  
-#maxN = 0     → remove reads com bases N
-#maxEE = 2    → máximo de erros esperados
-#truncQ = 2   → truncagem por baixa qualidade
-#minLen = 200 → comprimento mínimo
-#rm.phix      → remove contaminantes PhiX
-
-# ETAPA 13 - Aprendizado do Modelo de Erro
-
-# 13.1 Filtrar apenas arquivos que realmente existem
+# ETAPA 13 - Modelo de Erro
 filtFs <- filtFs[file.exists(filtFs)]
 filtRs <- filtRs[file.exists(filtRs)]
-
-# 13.2 Modelagem estatística dos erros de sequenciamento
-errF <- learnErrors(filtFs, multithread = TRUE)
-errR <- learnErrors(filtRs, multithread = TRUE)
-
-# 13.3 Visualização dos modelos de erro
-plotErrors(errF, nominalQ = TRUE)
-plotErrors(errR, nominalQ = TRUE)
+errF <- learnErrors(filtFs,multithread=TRUE)
+errR <- learnErrors(filtRs,multithread=TRUE)
+png("resultados/error_forward.png"); plotErrors(errF, nominalQ=TRUE); dev.off()
+png("resultados/error_reverse.png"); plotErrors(errR, nominalQ=TRUE); dev.off()
 
 # ETAPA 14 - Inferência das ASVs
-# 14.1 Reconstrução das variantes biológicas reais.
+dadaFs <- dada(filtFs, err=errF, multithread=TRUE)
+dadaRs <- dada(filtRs, err=errR, multithread=TRUE)
 
-dadaFs <- dada(
-  filtFs,
-  err = errF,
-  multithread = TRUE
-)
-
-dadaRs <- dada(
-  filtRs,
-  err = errR,
-  multithread = TRUE
-)
-
-# 14.2 Inspecionar:
-  
-dadaFs
-dadaRs
-
-# ETAPA 15 - Análise Paired-End
-
+# ETAPA 15 - Paired-End
+# 15.1 Realizar o merge das leituras forward e reverse
 mergers <- mergePairs(
-  dadaFs,
-  filtFs,
-  dadaRs,
-  filtRs,
+  dadaFs,   # inferência forward
+  filtFs,   # arquivos forward filtrados
+  dadaRs,   # inferência reverse
+  filtRs,   # arquivos reverse filtrados
   verbose = TRUE
 )
 
-# 15.1 Criar tabela de merges por amostra (simplificada)
-merge_summary <- function(merger, sample_name, total_input) {
+# 15.2 Função para calcular estatísticas de merge
+merge_summary <- function(merger, sample_name) {
   merged_reads <- sum(merger$abundance)
+  
+  # usar a coluna correta da tabela 'out' (reads após filtragem)
+  total_input <- out[sample_name, "reads.out"]
+  
+  taxa_merge <- ifelse(total_input > 0,
+                       round(merged_reads / total_input * 100, 2),
+                       NA)
+  
   data.frame(
     Amostra      = sample_name,
-    Reads_totais = total_input,                          # total de pares após filtragem
-    Reads_unidas = merged_reads,                         # pares unidos com sucesso
-    Taxa_merge   = round(merged_reads / total_input * 100, 2) # taxa real (%)
+    Reads_totais = total_input,
+    Reads_unidas = merged_reads,
+    Taxa_merge   = taxa_merge
   )
 }
 
-# Aplicar a função a todas as amostras
-# Aqui assumo que 'out[,2]' contém os reads filtrados (saída do filterAndTrim)
-merge_table <- do.call(rbind, lapply(seq_along(mergers), function(i) {
-  merge_summary(mergers[[i]], names(mergers)[i], out[i,2])
+# 15.3 Criar tabela consolidada de merges
+merge_table <- do.call(rbind, lapply(names(mergers), function(s) {
+  merge_summary(mergers[[s]], s)
 }))
 
-# Visualizar a tabela consolidada
+# 15.4 Visualizar e salvar tabela
 print(merge_table)
+write.csv(merge_table, "resultados/merge_table.csv", row.names = FALSE)
 
-# 15.2 Criar sequence table
+# 15.5 Criar sequence table para as ASVs
 seqtab <- makeSequenceTable(mergers)
 
-# 15.3 Verificar dimensões e tamanhos de sequência
+# 15.6 Verificar dimensões e tamanhos de sequência
 dim(seqtab)
 table(nchar(colnames(seqtab)))
 
+# As ETAPAS 16 e 17 são opcionais e devem ser executadas apenas se a taxa de merge das leituras paired-end for insatisfatória. Nesse caso, a análise continua com as leituras forward (Single-End), garantindo que as ASVs sejam reconstruídas mesmo sem o pareamento completo.
 
-# ETAPA 16 - Análise Single-End
-# 16.1 Construir tabela de ASVs (usando apenas forward)
+# ETAPA 16 - Single-End (caso análise Paired-End fique com qualidade ruim)
 seqtab_single <- makeSequenceTable(dadaFs)
 
-# 16.2 Verificar dimensões
-dim(seqtab_single)
+# ETAPA 17 - Rastreamento Single-End
+# 17.1 Função para contar reads únicos
+getN <- function(x) sum(getUniques(x))
 
-# ETAPA 17 - Estatísticas de Retenção (Single-End)
+# 17.2 Garantir que 'out' tenha nomes de linha iguais às amostras
+rownames(out) <- basename(fnFs)
 
-# 17.1 Criar função
-getN <- function(x) {
-  sum(getUniques(x))
+# 17.3 Criar tabela de rastreamento completa
+track_single <- data.frame(
+  input     = out[,1],  # reads de entrada
+  filtered  = out[,2],  # reads após filtragem
+  denoisedF = NA,       # inicializa coluna
+  ASVs      = NA        # inicializa coluna
+)
+
+# 17.4 Preencher apenas para amostras que passaram
+for (s in names(dadaFs)) {
+  track_single[s,"denoisedF"] <- getN(dadaFs[[s]])
+  track_single[s,"ASVs"]      <- rowSums(seqtab_single[s, , drop=FALSE])
 }
 
-# 17.2 Alinhar 'out' com as amostras que passaram para dadaFs
-out_aligned <- out[rownames(out) %in% names(dadaFs), ]
-
-# 17.3 Criar tabela de rastreamento (apenas colunas relevantes para single-end)
-track_single <- data.frame(
-  input     = out_aligned[,1],              # reads de entrada
-  filtered  = out_aligned[,2],              # reads após filtragem
-  denoisedF = sapply(dadaFs, getN),         # reads após inferência forward
-  ASVs      = rowSums(seqtab_single)        # reads atribuídos às ASVs finais
-)
-
-# 17.4 Nomear linhas com os nomes das amostras
-rownames(track_single) <- names(dadaFs)
-
-# 17.5 Visualizar tabela consolidada
+# 17.5 Visualizar e salvar tabela
 print(track_single)
+write.csv(track_single, "resultados/track_single.csv", row.names = TRUE)
 
 # ETAPA 18 - Remoção de Quimeras
-# 18.1 Remover quimeras utilizando o método de consenso
-seqtab.nochim <- removeBimeraDenovo(
-  seqtab,
-  method = "consensus",
-  multithread = TRUE
-)
+seqtab.nochim <- removeBimeraDenovo(seqtab,method="consensus",multithread=TRUE)
 
-# 18.2 Verificar dimensões da tabela após remoção
-dim(seqtab.nochim)
+# ETAPA 19 - Comprimento das ASVs
+asv.lengths <- nchar(colnames(seqtab.nochim))
+png("resultados/asv_lengths_hist.png"); hist(asv.lengths,breaks=100,main="Comprimento das ASVs"); dev.off()
 
-# 18.3 Calcular proporção de reads retidas (taxa de retenção pós-quimera)
-retencao_quimera <- sum(seqtab.nochim) / sum(seqtab)
-retencao_quimera
-
-# ETAPA 19 - Avaliação dos Comprimentos das ASVs
-asv.lengths <- nchar(
-  colnames(seqtab.nochim)
-)
-
-summary(asv.lengths)
-
-
-# 19.1 Histograma:
-hist(
-    asv.lengths,
-    breaks = 100,
-    main = "Comprimento das ASVs"
-)
-
-# ETAPA 20 - Identificar ASVs Mais Abundantes
-asv.sum <- colSums(
-  seqtab.nochim
-)
-
-head(
-  sort(
-    asv.sum,
-    decreasing = TRUE
-  ),
-  20
-)
+# ETAPA 20 - ASVs Mais Abundantes
+asv.sum <- colSums(seqtab.nochim)
+top20 <- head(sort(asv.sum,decreasing=TRUE),20)
+write.csv(data.frame(ASV=names(top20),Abundancia=top20),"resultados/top20_asvs.csv",row.names=FALSE)
 
 # ETAPA 21 - Exportação das ASVs em FASTA
-# 21.1 Selecionar ASVs:
-  
-seqs <- colnames(
-    seqtab.nochim
-)
+seqs <- colnames(seqtab.nochim)
+write.fasta(sequences=lapply(seqs,s2c),names=paste0("ASV_",seq_along(seqs)),file.out="resultados/ASVs_rbcL.fasta")
 
+# 21.1 Exportar FASTA por amostra
+for (sample in rownames(seqtab.nochim)) {
+  sample_seqs <- seqtab.nochim[sample, ]
+  sample_seqs <- sample_seqs[sample_seqs > 0]
+  seqs_sample <- names(sample_seqs)
+  write.fasta(sequences=lapply(seqs_sample,s2c),names=paste0("ASV_",seq_along(seqs_sample)),file.out=paste0("fastas_por_amostra/",sample,".fasta"))
+}
 
-# 21.2 Exportar:
-  
-write.fasta(
-    sequences = lapply(
-      seqs,
-      s2c
-    ),
-    names = paste0(
-      "ASV_",
-      seq_along(seqs)
-    ),
-    file.out = "ASVs_rbcL.fasta"
-  )
+# ETAPA 22 – Taxonomia por BLAST Local
 
+# 22.1. Criar banco BLAST (Terminal)
+cd /Users/Ferreira_/Downloads/rbcL_landPlant_v1-blastn
+makeblastdb -in rbcL_landPlant.fasta -dbtype nucl -out rbcL_db
 
-# 21.3 Verificar:
-  
-file.exists(
-    "ASVs_rbcL.fasta"
-)
+# 22.2 Rodar BLAST contra suas ASVs (Terminal)
+blastn -query /Users/Ferreira_/NGS-rbcL-validacao/resultados/ASVs_rbcL.fasta \
+-db /Users/Ferreira_/Downloads/rbcL_landPlant_v1-blastn/rbcL_db \
+-out /Users/Ferreira_/NGS-rbcL-validacao/resultados/taxonomy.tsv \
+-outfmt "6 qseqid sseqid pident length mismatch gapopen evalue bitscore staxids" \
+-max_target_seqs 1
 
-# ETAPA 22 - Identificação Taxonômica com rbcL Land Plant Classifier v1
-# 23.1 Definir o caminho do arquivo FASTA de referência
-tax.ref <- "/Users/Ferreira_/Downloads/rbcL_landPlant_v1-blastn/rbcL_landPlant.fasta"
+# 22.3 Importar resultados BLAST (R)
+blast.results <- read.table("resultados/taxonomy.tsv", header=FALSE, sep="\t")
+colnames(blast.results) <- c("ASV","RefSeq","PercIdentity","Length","Mismatch",
+                             "GapOpen","Evalue","Bitscore","TaxID")
 
-# 22.2 Atribuir taxonomia às ASVs usando DADA2
-taxa <- assignTaxonomy(
-  seqtab.nochim,
-  tax.ref,
-  multithread = TRUE
-)
+# 22.4 Selecionar melhor hit e extrair espécie
+library(dplyr)
+library(stringr)
 
-# 22.3 Visualizar primeiras atribuições taxonômicas
-head(taxa)
+best_hits <- blast.results %>%
+  group_by(ASV) %>%
+  slice_min(order_by = Evalue, n = 1) %>%
+  mutate(species = str_extract(RefSeq, "[^;]+$"))
 
-# 22.4 (Opcional) Adicionar nomes de espécies se houver arquivo complementar
-# taxa <- addSpecies(taxa, "/Users/Ferreira_/Downloads/rbcL_landPlant_species.fa")
+# 22.5 Juntar com abundância (seqtab.nochim gerado na ETAPA 18)
+rownames(best_hits) <- best_hits$ASV
 
-# ETAPA 23 - Taxonomia por BLAST Local
+final_table <- as.data.frame(t(seqtab.nochim)) %>%
+  mutate(species = best_hits[rownames(.), "species"])
 
-# 23.1 Criar banco de referência
-# Substitua "rbcL_reference.fasta" pelo arquivo FASTA que você baixou (GenBank, BOLD ou outro).
-makeblastdb -in rbcL_reference.fasta \
--dbtype nucl \
--out rbcL_db
+# 22.6 Exportar tabela final
+write.csv(final_table, "resultados/final_table_taxonomy.csv", row.names = TRUE)
 
-# 23.2 Executar BLAST contra as ASVs exportadas
-# O arquivo "ASVs_rbcL.fasta" foi gerado na ETAPA 21.
-blastn -query ASVs_rbcL.fasta \
--db rbcL_db \
--out taxonomy.tsv \
--outfmt "6 qseqid sseqid pident length mismatch gapopen evalue bitscore staxids"
-
-# 23.3 Importar resultados no R para análise
-blast.results <- read.table("taxonomy.tsv", header = FALSE, sep = "\t")
-colnames(blast.results) <- c("ASV", "RefSeq", "PercIdentity", "Length", "Mismatch",
-                             "GapOpen", "Evalue", "Bitscore", "TaxID")
-
-# 23 Visualizar primeiras linhas
-head(blast.results)
